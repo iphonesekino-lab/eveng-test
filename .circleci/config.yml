@@ -6,7 +6,7 @@ version: 2.1
 # Target: EVE-NG MINI PC (SSHで接続)
 # ============================================================
 
-# ---- パイプラインパラメータ ----
+# ---- パイプラインパラメータ -
 parameters:
   eveng_host:
     type: string
