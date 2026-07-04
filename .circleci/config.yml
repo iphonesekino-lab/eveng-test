@@ -1,0 +1,164 @@
+version: 2.1
+
+# ============================================================
+# EVE-NG 自動セットアップ パイプライン
+# Runner: Proxmox内Ubuntu (self-hosted runner)
+# Target: EVE-NG MINI PC (SSHで接続)
+# ============================================================
+
+# ---- パイプラインパラメータ ----
+parameters:
+  eveng_host:
+    type: string
+    default: "192.168.3.82"   # EVE-NGのIPアドレスに変更
+  eveng_user:
+    type: string
+    default: "root"
+
+jobs:
+  # ----------------------------------------------------------
+  # 1. ライセンス適用
+  # ----------------------------------------------------------
+  apply-license:
+    machine: true
+    resource_class: your-org/eveng-runner   # ← 自分のrunnerリソースクラス名に変更
+    environment:
+      EVENG_HOST: << pipeline.parameters.eveng_host >>
+      EVENG_USER: << pipeline.parameters.eveng_user >>
+    steps:
+      - checkout
+
+      - add_ssh_keys:
+          fingerprints:
+            - "xx:xx:xx:xx"   # ← CircleCIに登録した秘密鍵のフィンガープリントに変更
+
+      - run:
+          name: known_hosts に追加
+          command: ssh-keyscan -H $EVENG_HOST >> ~/.ssh/known_hosts
+
+      - run:
+          name: ライセンスファイルを転送・適用
+          command: |
+            scp files/license.pem $EVENG_USER@$EVENG_HOST:/tmp/license.pem
+            ssh $EVENG_USER@$EVENG_HOST << 'ENDSSH'
+              mv /tmp/license.pem /opt/unetlab/license.pem
+              /opt/unetlab/wrappers/unl_wrapper -a fixpermissions
+              echo "[OK] license applied"
+            ENDSSH
+
+  # ----------------------------------------------------------
+  # 2. ノードイメージ転送
+  # ----------------------------------------------------------
+  transfer-images:
+    machine: true
+    resource_class: your-org/eveng-runner
+    environment:
+      EVENG_HOST: << pipeline.parameters.eveng_host >>
+      EVENG_USER: << pipeline.parameters.eveng_user >>
+    steps:
+      - checkout
+
+      - add_ssh_keys:
+          fingerprints:
+            - "xx:xx:xx:xx"
+
+      - run:
+          name: known_hosts に追加
+          command: ssh-keyscan -H $EVENG_HOST >> ~/.ssh/known_hosts
+
+      - run:
+          name: IOLイメージを転送 (Cisco IOL用)
+          command: |
+            ssh $EVENG_USER@$EVENG_HOST "mkdir -p /opt/unetlab/addons/iol/bin"
+            scp images/iol/*.bin $EVENG_USER@$EVENG_HOST:/opt/unetlab/addons/iol/bin/
+
+      - run:
+          name: qemuイメージを転送 (必要な場合)
+          command: |
+            # 例: vIOSイメージ
+            # ssh $EVENG_USER@$EVENG_HOST "mkdir -p /opt/unetlab/addons/qemu/vios-adventerprisek9-m.vmdk.SSA.156-2.T/"
+            # scp images/qemu/vios/*.vmdk $EVENG_USER@$EVENG_HOST:/opt/unetlab/addons/qemu/vios-adventerprisek9-m.vmdk.SSA.156-2.T/
+            echo "qemuイメージは必要に応じてアンコメント"
+
+      - run:
+          name: パーミッション修正
+          command: |
+            ssh $EVENG_USER@$EVENG_HOST \
+              "/opt/unetlab/wrappers/unl_wrapper -a fixpermissions && echo '[OK] permissions fixed'"
+
+  # ----------------------------------------------------------
+  # 3. ユーザー・各種設定変更
+  # ----------------------------------------------------------
+  configure:
+    machine: true
+    resource_class: your-org/eveng-runner
+    environment:
+      EVENG_HOST: << pipeline.parameters.eveng_host >>
+      EVENG_USER: << pipeline.parameters.eveng_user >>
+    steps:
+      - checkout
+
+      - add_ssh_keys:
+          fingerprints:
+            - "xx:xx:xx:xx"
+
+      - run:
+          name: known_hosts に追加
+          command: ssh-keyscan -H $EVENG_HOST >> ~/.ssh/known_hosts
+
+      - run:
+          name: 設定スクリプトを実行
+          command: |
+            ssh $EVENG_USER@$EVENG_HOST "bash -s" < scripts/configure.sh
+
+      - run:
+          name: 設定確認
+          command: |
+            ssh $EVENG_USER@$EVENG_HOST << 'ENDSSH'
+              echo "=== EVE-NG バージョン ==="
+              dpkg -l | grep eve-ng
+              echo "=== ネットワーク設定 ==="
+              ip addr show pnet0
+            ENDSSH
+
+# ============================================================
+# ワークフロー定義
+# ============================================================
+workflows:
+  eveng-full-setup:
+    jobs:
+      # mainブランチへのpushで全ジョブを順番に実行
+      - apply-license:
+          filters:
+            branches:
+              only: main
+
+      - transfer-images:
+          requires:
+            - apply-license
+          filters:
+            branches:
+              only: main
+
+      - configure:
+          requires:
+            - transfer-images
+          filters:
+            branches:
+              only: main
+
+  # ライセンスだけ適用したい場合 (手動トリガー用)
+  eveng-license-only:
+    jobs:
+      - apply-license:
+          filters:
+            branches:
+              only: license-only
+
+  # 設定だけ変更したい場合 (手動トリガー用)
+  eveng-configure-only:
+    jobs:
+      - configure:
+          filters:
+            branches:
+              only: configure-only
