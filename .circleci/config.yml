@@ -16,4 +16,4 @@ jobs:
 workflows:
   eveng_setup:
     jobs:
-      - run_cisco_7200 #テスト
+      - run_cisco_7200 #テスト→関野修正手順１
