@@ -1,4 +1,4 @@
-version: 2.1　＃手順4の追加修正→ここにさらに修正を加えた
+version: 2.1　
 
 jobs:
   run_cisco_7200:
@@ -16,4 +16,4 @@ jobs:
 workflows:
   eveng_setup:
     jobs:
-      - run_cisco_7200 #テスト→関野修正手順１→手順２→手順３→手順4→手順5
+      - run_cisco_7200 
